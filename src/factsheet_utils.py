@@ -4,8 +4,11 @@ import csv
 import numpy as np
 import openai
 from openai import OpenAI
+from summary_utils import chain_of_density_prompting
+from sklearn.metrics import accuracy_score
 
-__all__ = ['get_openai_response', 'generate_fact_sheet', 'combine_fact_sheets', 'save_factsheet', 'break_text']
+__all__ = ['get_openai_response', 'generate_fact_sheet', 'combine_fact_sheets', \
+            'save_factsheet', 'break_text', 'generate_maud_knowledge_prompt']
 
 #------------------------------------------------------------------------------
 
@@ -114,3 +117,70 @@ def break_text(raw_case, word_thresh=10000):
   case_words = raw_case.split(' ')
   sections = [' '.join(case_words[i:i+word_thresh]) for i in range(0, len(case_words), word_thresh)]
   return sections
+
+
+# Function to generate the prompt for the maud_knowledge_definition task
+def generate_maud_knowledge_prompt(text):
+    prompt = f"""
+    Read the following excerpt from a merger agreement and determine what counts as Knowledge.
+    
+    Excerpt: {text}
+    
+    Options:
+    A: Actual knowledge
+    B: Constructive knowledge
+    
+    Answer:
+    """
+    return prompt
+
+
+# Function to classify text using chain_of_density_prompting
+def classify_knowledge_one_shot(text, client):
+    prompt = generate_maud_knowledge_prompt(text)
+    initial_prompt = f"Given the following task and excerpt, create a factsheet with key information. \n \
+        task: {prompt}."
+    response_factsheet = get_openai_response(initial_prompt, client)
+    task_specific_prompt = f"""Given the following factsheet with information about the task: \n
+    Factsheet: {response_factsheet} \n Solve this task by returning the multiple choice answer
+    regardless of whether or not you think you
+    have enough information. \n Task: {prompt}."""
+    response_task = get_openai_response(task_specific_prompt, client)
+    return response_task
+
+# Function to evaluate the model on a given dataset
+def evaluate_model(dataset, client):
+    predictions = []
+    true_labels = []
+    for _, row in dataset.iterrows():
+        text = row['text']
+        true_label = row['label']
+        
+        predicted_label = classify_knowledge_one_shot(text, client)
+        print(f'Predicted Label: {predicted_label}')
+        
+        # Map the model's response to the corresponding label
+        if 'Actual knowledge' in predicted_label:
+            predicted_label = 0
+        elif 'Constructive knowledge' in predicted_label:
+            predicted_label = 1
+        else:
+            predicted_label = None
+        
+        predictions.append(predicted_label)
+        true_labels.append(true_label)
+    
+    # Compute the accuracy
+    accuracy = accuracy_score(true_labels, predictions)
+    return accuracy
+
+if __name__ == "__main__":
+    df = pd.read_csv("../data/maud_knowledge_definition.tsv", sep="\t", header=None, names=["label", "text"])
+    print(df)
+    # exit()
+    client = OpenAI(api_key = input())
+    label_mapping = {"Actual knowledge": 0, "Constructive knowledge": 1}
+    df["label"] = df["label"].map(label_mapping)
+
+    accuracy = evaluate_model(df, client)
+    print(f"Model Accuracy: {accuracy:.2f}")
