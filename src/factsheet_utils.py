@@ -178,7 +178,7 @@ if __name__ == "__main__":
     df = pd.read_csv("../data/maud_knowledge_definition.tsv", sep="\t", header=None, names=["label", "text"])
     print(df)
     # exit()
-    client = OpenAI(api_key = input())
+    client = OpenAI(api_key = input('Enter API Key: '))
     label_mapping = {"Actual knowledge": 0, "Constructive knowledge": 1}
     df["label"] = df["label"].map(label_mapping)
 
